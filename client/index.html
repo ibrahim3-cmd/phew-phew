@@ -1,0 +1,2 @@
+const ws = new WebSocket(`${location.protocol === 'https:' ? 'wss' : 'ws'}://${location.host}`);
+ws.onmessage = (e) => console.log('server says:', e.data);
