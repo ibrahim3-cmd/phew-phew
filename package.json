@@ -3,7 +3,10 @@
   "version": "1.0.0",
   "description": "",
   "main": "index.js",
- "scripts": { "dev": "node --watch server/index.js", "start": "node server/index.js" },
+  "scripts": {
+    "dev": "node --watch server/index.js",
+    "start": "node server/index.js"
+  },
   "repository": {
     "type": "git",
     "url": "git+https://github.com/ibrahim3-cmd/phew-phew.git"
@@ -11,7 +14,7 @@
   "keywords": [],
   "author": "",
   "license": "ISC",
-  "type": "commonjs",
+  "type": "module",
   "bugs": {
     "url": "https://github.com/ibrahim3-cmd/phew-phew/issues"
   },
@@ -20,4 +23,3 @@
     "ws": "^8.22.1"
   }
 }
-
