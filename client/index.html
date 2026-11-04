@@ -1,2 +1,126 @@
 const ws = new WebSocket(`${location.protocol === 'https:' ? 'wss' : 'ws'}://${location.host}`);
 ws.onmessage = (e) => console.log('server says:', e.data);
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>phew-phew</title>
+<style>
+:root{--bg:#14161c;--panel:#1d2029;--text:#e6e8ee;--muted:#8b90a0}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--text);font:14px system-ui,sans-serif;display:flex;flex-direction:column;align-items:center;gap:10px;padding:10px}
+canvas{background:#222633;border-radius:8px;max-width:100%;touch-action:none;cursor:crosshair}
+#ui{display:flex;flex-wrap:wrap;gap:14px;background:var(--panel);padding:10px 14px;border-radius:8px;width:100%;max-width:900px}
+.s{flex:1;min-width:180px}
+.s label{display:flex;justify-content:space-between;font-size:12px;color:var(--muted)}
+.s input{width:100%}
+.s small{color:var(--muted);font-size:11px}
+#help{color:var(--muted);font-size:12px;max-width:900px;text-align:center}
+</style>
+</head>
+<body>
+<canvas id="c" width="900" height="560"></canvas>
+<div id="ui">
+  <div class="s"><label>Health ⇄ Damage <b id="v1"></b></label><input id="s1" type="range" min="0" max="100" value="50"><small id="t1"></small></div>
+  <div class="s"><label>Range: Shotgun ⇄ Sniper <b id="v2"></b></label><input id="s2" type="range" min="0" max="100" value="50"><small id="t2"></small></div>
+  <div class="s"><label>Speed ⇄ Reload <b id="v3"></b></label><input id="s3" type="range" min="0" max="100" value="50"><small id="t3"></small></div>
+</div>
+<div id="help">Right-click: move · Left-click / Space: shoot toward cursor · Sliders change stats live</div>
+<script>
+// ---- WebSocket connection to the Node server ----
+const ws = new WebSocket(`${location.protocol === 'https:' ? 'wss' : 'ws'}://${location.host}`);
+ws.onmessage = (e) => console.log('server says:', e.data);
+
+// ---- Game ----
+const cv=document.getElementById('c'),ctx=cv.getContext('2d');
+const W=cv.width,H=cv.height;
+const mouse={x:W/2,y:H/2};
+const hue=Math.floor(Math.random()*360);
+const P={x:200,y:H/2,r:20,color:`hsl(${hue},75%,58%)`,tx:200,ty:H/2,hp:125,maxHp:125,ammo:5,maxAmmo:5,reloadT:0,flash:0,aim:0};
+const D={x:650,y:H/2,r:24,hp:300,maxHp:300};
+let marker=null,texts=[],stats={};
+
+function calc(){
+  const h=s1.value/100,r=s2.value/100,s=s3.value/100;
+  stats={
+    maxHp:Math.round(50+150*(1-h)),
+    dmg:Math.round(10+30*h),
+    len:120+480*r,
+    half:(40-38*r)*Math.PI/180,
+    speed:120+180*s,
+    reload:0.4+1.6*s
+  };
+  const ratio=P.hp/P.maxHp; P.maxHp=stats.maxHp; P.hp=Math.max(1,Math.round(ratio*P.maxHp));
+  v1.textContent=s1.value;v2.textContent=s2.value;v3.textContent=s3.value;
+  t1.textContent=`HP ${stats.maxHp} · Damage ${stats.dmg}`;
+  t2.textContent=`Length ${Math.round(stats.len)} · Spread ${Math.round(stats.half*360/Math.PI)}°`;
+  t3.textContent=`Speed ${Math.round(stats.speed)} · Reload ${stats.reload.toFixed(1)}s/ammo`;
+}
+['s1','s2','s3'].forEach(i=>document.getElementById(i).addEventListener('input',calc));
+calc();
+
+function pos(e){const b=cv.getBoundingClientRect();return{x:(e.clientX-b.left)*W/b.width,y:(e.clientY-b.top)*H/b.height}}
+cv.addEventListener('contextmenu',e=>e.preventDefault());
+cv.addEventListener('mousemove',e=>Object.assign(mouse,pos(e)));
+cv.addEventListener('mousedown',e=>{
+  const p=pos(e);Object.assign(mouse,p);
+  if(e.button===2){P.tx=p.x;P.ty=p.y;marker={x:p.x,y:p.y,t:0.5}}
+  else if(e.button===0)shoot();
+});
+addEventListener('keydown',e=>{if(e.code==='Space'){e.preventDefault();shoot()}});
+
+function shoot(){
+  if(P.ammo<1)return;
+  P.ammo--;P.flash=0.15;
+  P.aim=Math.atan2(mouse.y-P.y,mouse.x-P.x);
+  const dx=D.x-P.x,dy=D.y-P.y,dist=Math.hypot(dx,dy);
+  let da=Math.abs(Math.atan2(dy,dx)-P.aim);if(da>Math.PI)da=2*Math.PI-da;
+  const tol=Math.asin(Math.min(1,D.r/Math.max(dist,D.r)));
+  if(dist-D.r<=stats.len&&da<=stats.half+tol){
+    D.hp=Math.max(0,D.hp-stats.dmg);
+    texts.push({x:D.x+(Math.random()*20-10),y:D.y-D.r-24,v:'-'+stats.dmg,t:0.8});
+    if(D.hp===0)setTimeout(()=>{D.hp=D.maxHp},1000);
+  }
+}
+
+function bar(x,y,w,frac,col){
+  ctx.fillStyle='#000a';ctx.fillRect(x-w/2-1,y-1,w+2,8);
+  ctx.fillStyle=col;ctx.fillRect(x-w/2,y,w*Math.max(0,frac),6);
+}
+
+let last=performance.now();
+function loop(now){
+  const dt=Math.min(0.05,(now-last)/1000);last=now;
+  const dx=P.tx-P.x,dy=P.ty-P.y,d=Math.hypot(dx,dy);
+  if(d>2){const st=Math.min(d,stats.speed*dt);P.x+=dx/d*st;P.y+=dy/d*st}
+  P.x=Math.min(W-P.r,Math.max(P.r,P.x));P.y=Math.min(H-P.r,Math.max(P.r,P.y));
+  if(P.ammo<P.maxAmmo){P.reloadT+=dt;if(P.reloadT>=stats.reload){P.ammo++;P.reloadT=0}}else P.reloadT=0;
+  P.flash=Math.max(0,P.flash-dt);
+  texts.forEach(t=>{t.t-=dt;t.y-=30*dt});texts=texts.filter(t=>t.t>0);
+  if(marker){marker.t-=dt;if(marker.t<=0)marker=null}
+
+  ctx.clearRect(0,0,W,H);
+  ctx.strokeStyle='#2c3142';ctx.lineWidth=1;
+  for(let x=0;x<W;x+=50){ctx.beginPath();ctx.moveTo(x,0);ctx.lineTo(x,H);ctx.stroke()}
+  for(let y=0;y<H;y+=50){ctx.beginPath();ctx.moveTo(0,y);ctx.lineTo(W,y);ctx.stroke()}
+  if(marker){ctx.strokeStyle='#6ee7a0';ctx.lineWidth=2;ctx.beginPath();ctx.arc(marker.x,marker.y,8+marker.t*10,0,7);ctx.stroke()}
+  const a=P.flash>0?P.aim:Math.atan2(mouse.y-P.y,mouse.x-P.x);
+  ctx.beginPath();ctx.moveTo(P.x,P.y);ctx.arc(P.x,P.y,stats.len,a-stats.half,a+stats.half);ctx.closePath();
+  ctx.fillStyle=P.flash>0?'rgba(255,220,120,.45)':'rgba(255,255,255,.07)';ctx.fill();
+  ctx.strokeStyle=P.flash>0?'#ffd978':'#ffffff22';ctx.lineWidth=1;ctx.stroke();
+  ctx.fillStyle=D.hp>0?'#8b8f9c':'#444';ctx.beginPath();ctx.arc(D.x,D.y,D.r,0,7);ctx.fill();
+  ctx.fillStyle='#222633';ctx.font='bold 11px system-ui';ctx.textAlign='center';ctx.fillText('DUMMY',D.x,D.y+4);
+  bar(D.x,D.y-D.r-14,50,D.hp/D.maxHp,'#e5534b');
+  ctx.fillStyle=P.color;ctx.beginPath();ctx.arc(P.x,P.y,P.r,0,7);ctx.fill();
+  ctx.strokeStyle='#fff';ctx.lineWidth=2;ctx.stroke();
+  bar(P.x,P.y-P.r-24,50,P.hp/P.maxHp,'#4ade80');
+  bar(P.x,P.y-P.r-14,50,(P.ammo+(P.ammo<P.maxAmmo?P.reloadT/stats.reload:0))/P.maxAmmo,'#60a5fa');
+  ctx.fillStyle='#ffd978';ctx.font='bold 16px system-ui';
+  texts.forEach(t=>ctx.fillText(t.v,t.x,t.y));
+  requestAnimationFrame(loop);
+}
+requestAnimationFrame(loop);
+</script>
+</body>
+</html>
